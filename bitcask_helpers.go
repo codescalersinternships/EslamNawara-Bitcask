@@ -27,7 +27,7 @@ func createBitcask(dirPath string, cfg []ConfigOptions) Bitcask {
 		keydir:       make(keyDir),
 		directory:    dirPath,
 		penWrites:    make(pendingWrites),
-		activeFileId: int(time.Now().Unix()),
+		activeFileId: int(time.Now().UnixNano()),
 		dirOpts: ConfigOptions{
 			accessPermission: config.accessPermission,
 			syncOption:       config.syncOption,
@@ -151,9 +151,10 @@ func (bc *Bitcask) buildMergedFileRecord(key string, rec record) []byte {
 }
 
 func (bc *Bitcask) buildMergedFiles() {
-	fId := 0
-	mergedFile := filepath.Join(bc.directory, "m")
-	file, _ := os.OpenFile(mergedFile, os.O_APPEND|os.O_CREATE, 0777)
+	fId := int(time.Now().UnixNano())
+	mergedFile := filepath.Join(bc.directory, "m"+strconv.Itoa(fId))
+	file, _ := os.OpenFile(mergedFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0777)
+    defer file.Close()
 	pos := 0
 	for key, val := range bc.keydir {
 		if val.fileId != bc.activeFileId {
@@ -167,7 +168,7 @@ func (bc *Bitcask) buildMergedFiles() {
 			}
 			file.Write(elem)
 			pos += len(elem)
-
 		}
 	}
 }
+

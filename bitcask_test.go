@@ -143,7 +143,7 @@ func TestGet(t *testing.T) {
 		config := ConfigOptions{WritingPermession, false}
 		bc, _ := Open(path, config)
 		bc.Put("Name", "Eslam")
-	    bc.Sync()
+		bc.Sync()
 		got, _ := bc.Get("Name")
 		want := "Eslam"
 		bc.Close()
@@ -151,22 +151,21 @@ func TestGet(t *testing.T) {
 			t.Errorf("expected %v but got %v", want, got)
 		}
 	})
-	/*
-		t.Run("Get Merged value", func(t *testing.T) {
-			path := filepath.Join("testing", "testGet", "mergedDir")
-			config := ConfigOptions{WritingPermession, true}
-			bc, _ := Open(path, config)
-			bc.Put("Name", "Eslam")
-			bc.Put("Age", "22")
-			bc.Put("Uni", "MU")
-			bc.Sync()
-			bc.Merge()
-			want := "MU"
-			got, _ := bc.Get("Uni")
-			bc.Close()
-			if got != want {
-				t.Errorf("expected %v but got %v", want, got)
-			}
-		})
-	*/
+
+	t.Run("Get Merged value", func(t *testing.T) {
+		path := filepath.Join("testing", "testGet", "mergedDir")
+		config := ConfigOptions{WritingPermession, true}
+		bc, _ := Open(path, config)
+		bc.Put("Name", "Eslam")
+		bc.Put("Age", "22")
+		bc.Put("Uni", "MU")
+		bc.Sync()
+		bc.Merge()
+		want := "MU"
+		got, _ := bc.Get("Uni")
+		bc.Close()
+		if got != want {
+			t.Errorf("expected %v but got %v", want, got)
+		}
+	})
 }
