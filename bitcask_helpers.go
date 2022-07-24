@@ -24,7 +24,6 @@ func createBitcask(dirPath string, cfg []ConfigOptions) Bitcask {
 		}
 	}
 	bc := Bitcask{
-		activeFile: filepath.Join(dirPath, strconv.Itoa(activeFile)),
 		keydir:     make(keyDir),
 		directory:  dirPath,
 		penWrites:  make(pendingWrites),
@@ -115,7 +114,7 @@ func (bc *Bitcask) buildHintFileRecord(key string, rec record) []byte {
 func (bc *Bitcask) buildHintFile() {
 	hintFile := filepath.Join(bc.directory, hintFile)
 	os.Remove(hintFile)
-	file, _ := os.OpenFile(hintFile, os.O_CREATE|os.O_APPEND, 0777)
+	file, _ := os.OpenFile(hintFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0777)
 	defer file.Close()
 	for key, val := range bc.keydir {
 		elem := bc.buildHintFileRecord(key, val)
@@ -153,15 +152,18 @@ func (bc *Bitcask) buildMergedFiles() {
 	file, _ := os.OpenFile(mergedFile, os.O_APPEND|os.O_CREATE, 0777)
 	pos := 0
 	for key, val := range bc.keydir {
-		elem := bc.buildMergedFileRecord(key, val)
-		bc.keydir[key] = record{
-			fileId:    fId,
-			tStamp:    val.tStamp,
-			valueSize: val.valueSize,
-			isPending: false,
-			valuePos:  pos,
+		if val.fileId != activeFileId {
+			elem := bc.buildMergedFileRecord(key, val)
+			bc.keydir[key] = record{
+				fileId:    fId,
+				tStamp:    val.tStamp,
+				valueSize: val.valueSize,
+				isPending: false,
+				valuePos:  pos,
+			}
+			file.Write(elem)
+			pos += len(elem)
+
 		}
-		file.Write(elem)
-		pos += len(elem)
 	}
 }

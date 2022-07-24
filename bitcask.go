@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -16,6 +17,8 @@ const (
 	TOMPSTONE           = "TOMPSTONE"
 	hintFile            = "hintFile"
 	lockFile            = "db.lck"
+	activeFile          = "activeFile"
+	activeFileId        = 0
 	//defines the isTypeLocked value
 	LockedForWriting = true
 	OpenForRW        = false
@@ -24,12 +27,9 @@ const (
 	ReadOnly          = false
 )
 
-var (
-	activeFile int
-)
+var ()
 
 type Bitcask struct {
-	activeFile string
 	directory  string
 	keydir     keyDir
 	dirOpts    ConfigOptions
@@ -124,12 +124,14 @@ func (bc *Bitcask) ListKeys() []string {
 	for key := range bc.keydir {
 		keys = append(keys, key)
 	}
+	sort.Strings(keys)
 	return keys
 }
 
-func (bc *Bitcask) Fold(foldFunc func(string, int) int, acc int) int {
+func (bc *Bitcask) Fold(foldFunc func(string, string, any) any, acc any) any{
 	for key := range bc.keydir {
-		acc = foldFunc(key, acc)
+		val, _ := bc.Get(key)
+		acc = foldFunc(key, val, acc)
 	}
 	return acc
 }
@@ -140,14 +142,15 @@ func (bc *Bitcask) Merge() error {
 	}
 	bc.Sync()
 	oldFiles, _ := os.ReadDir(bc.directory)
-
-	bc.buildHintFile()
 	bc.buildMergedFiles()
 	for _, file := range oldFiles {
-		filePath := filepath.Join(bc.directory, file.Name())
-		os.Remove(filePath)
+		if file.Name() == hintFile || file.Name() == activeFile {
+			filePath := filepath.Join(bc.directory, file.Name())
+			os.Remove(filePath)
+		}
 	}
 	os.Rename(filepath.Join(bc.directory, "m"), filepath.Join(bc.directory, "0"))
+	bc.buildHintFile()
 	return nil
 }
 
@@ -155,10 +158,12 @@ func (bc *Bitcask) Sync() error {
 	if err := bc.checkWritingPermission(); err != nil {
 		return err
 	}
-	currentActiveFile := filepath.Join(bc.directory, strconv.Itoa(activeFile))
+	currentActiveFile := filepath.Join(bc.directory, activeFile)
 	file, _ := os.OpenFile(currentActiveFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0777)
 	fi, _ := os.Stat(currentActiveFile)
 	pos := int(fi.Size())
+	temp, _ := os.ReadDir(bc.directory)
+	numOfFiles := len(temp)
 	for key, val := range bc.penWrites {
 		if val.value == TOMPSTONE {
 			delete(bc.keydir, key)
@@ -166,12 +171,11 @@ func (bc *Bitcask) Sync() error {
 		if state, _ := os.Stat(currentActiveFile); state.Size() >= activeMaxSize {
 			file.Close()
 			pos = 0
-			activeFile++
-			currentActiveFile := filepath.Join(bc.directory, strconv.Itoa(activeFile))
+			os.Rename(currentActiveFile, filepath.Join(bc.directory, strconv.Itoa(numOfFiles)))
 			file, _ = os.OpenFile(currentActiveFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0777)
 		}
 		bc.keydir[key] = record{
-			fileId:    activeFile,
+			fileId:    activeFileId,
 			tStamp:    val.tStamp,
 			valuePos:  pos,
 			valueSize: val.valSz,
@@ -186,8 +190,10 @@ func (bc *Bitcask) Sync() error {
 	return nil
 }
 
-func (bc *Bitcask) Close() error {
-	bc.Merge()
-	bc.unlockDir()
-	return nil
+func (bc *Bitcask) Close() {
+	if err := bc.checkWritingPermission(); err == nil {
+		bc.Sync()
+		bc.buildHintFile()
+		bc.unlockDir()
+	}
 }

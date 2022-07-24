@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -13,7 +14,7 @@ func TestOpen(t *testing.T) {
 		bc, err := Open(path, ConfigOptions{accessPermission: WritingPermession, syncOption: false})
 		want := fmt.Sprintf("New Directory was created in the path %s", path)
 		got := err.Error()
-		bc.unlockDir() //change to close after finishing
+		bc.unlockDir() 
 		os.Remove(path)
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
@@ -25,30 +26,6 @@ func TestOpen(t *testing.T) {
 		_, err := Open(path)
 		want := fmt.Sprintf("No such a file or directory %s\nCan't create directory in the path%s", path, path)
 		got := err.Error()
-		os.Remove(path)
-		if got != want {
-			t.Errorf("expected %v but got %v", want, got)
-		}
-	})
-	t.Run("Existing directory", func(t *testing.T) {
-		path := filepath.Join(filepath.Join("testing", "testOpen"), "openForReadingDir")
-		bc, _ := Open(path)
-		//the hint file had one line so the keydir contains one record after parsing the hint file
-		want := 1
-		got := len(bc.keydir)
-		if got != want {
-			t.Errorf("expected %v but got %v", want, got)
-		}
-	})
-
-	t.Run("Open for write", func(t *testing.T) {
-		path := filepath.Join(filepath.Join("testing", "testOpen"), "openForWritingDir")
-		config := ConfigOptions{WritingPermession, true}
-		bc, _ := Open(path, config)
-		//the hint file had one line so the keydir contains one record after parsing the hint file
-		want := 1
-		got := len(bc.keydir)
-		bc.unlockDir() //change to close after finishing
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 		}
@@ -60,12 +37,13 @@ func TestOpen(t *testing.T) {
 		bc, err := Open(path, ConfigOptions{ReadOnly, false})
 		want := fmt.Sprintf("The directory %s is type locked you can't read or write from it", path)
 		got := err.Error()
-		bc.unlockDir()
+		bc.Close()
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 		}
 	})
 }
+
 func TestPut(t *testing.T) {
 	t.Run("Put with permession", func(t *testing.T) {
 		path := filepath.Join("testing", "testPut")
@@ -73,7 +51,7 @@ func TestPut(t *testing.T) {
 		bc.Put("Name", "Eslam")
 		got := len(bc.keydir)
 		want := 1
-		bc.unlockDir() //change to close after finishing
+		bc.Close()
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 		}
@@ -82,9 +60,9 @@ func TestPut(t *testing.T) {
 	t.Run("Put with no permession", func(t *testing.T) {
 		path := filepath.Join("testing", "testPut")
 		bc, _ := Open(path)
+		fmt.Println(bc.directory)
 		got := bc.Put("Name", "Eslam").Error()
 		want := fmt.Sprintf("Writing permession denied in directory %s", path)
-		bc.unlockDir() //change to close after finishing
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 
@@ -100,7 +78,7 @@ func TestGet(t *testing.T) {
 		bc.Put("Name", "Eslam")
 		got, _ := bc.Get("Name")
 		want := "Eslam"
-		bc.unlockDir() //change to close after finishing
+		bc.Close()
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 		}
@@ -113,12 +91,13 @@ func TestGet(t *testing.T) {
 		want := fmt.Sprintf("Key %s not found in the directory %s", key, path)
 		_, err := bc.Get(key)
 		got := err.Error()
-		bc.unlockDir() //change to close after finishing
+		bc.Close()
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 		}
 
 	})
+/*
 	t.Run("Get synced value", func(t *testing.T) {
 		path := filepath.Join("testing", "testGet", "syncedDir")
 		config := ConfigOptions{WritingPermession, true}
@@ -127,11 +106,28 @@ func TestGet(t *testing.T) {
 		bc.Sync()
 		got, _ := bc.Get("Name")
 		want := "Eslam"
-		bc.unlockDir() //change to close after finishing
+		bc.Close()
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 		}
 	})
+	t.Run("Get Merged value", func(t *testing.T) {
+		path := filepath.Join("testing", "testGet", "mergedDir")
+		config := ConfigOptions{WritingPermession, true}
+		bc, _ := Open(path, config)
+		bc.Put("Name", "Eslam")
+		bc.Put("Age", "22")
+		bc.Put("Uni", "MU")
+		bc.Sync()
+		bc.Merge()
+		want := "MU"
+		got, _ := bc.Get("Uni")
+		bc.Close()
+		if got != want {
+			t.Errorf("expected %v but got %v", want, got)
+		}
+	})
+*/
 }
 
 func TestDelete(t *testing.T) {
@@ -141,10 +137,10 @@ func TestDelete(t *testing.T) {
 		key := "Name"
 		bc.Put(key, "Eslam")
 		bc.Delate(key)
-		_, err:= bc.Get(key)
+		_, err := bc.Get(key)
 		want := fmt.Sprintf("Key %s not found in the directory %s", key, path)
-		bc.unlockDir() //change to close after finishing
-        got:= err.Error()
+		got := err.Error()
+		bc.Close()
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 		}
@@ -155,9 +151,22 @@ func TestDelete(t *testing.T) {
 		bc, _ := Open(path)
 		got := bc.Delate("Age").Error()
 		want := fmt.Sprintf("Writing permession denied in directory %s", path)
-		bc.unlockDir() //change to close after finishing
+		bc.Close()
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 		}
 	})
+}
+
+func TestListKeys(t *testing.T) {
+	path := filepath.Join("testing", "testListKeys")
+	bc, _ := Open(path, ConfigOptions{WritingPermession, true})
+	bc.Put("Name", "Eslam")
+	bc.Put("Age", "22")
+	want := []string{"Age", "Name"}
+	bc.Close()
+	got := bc.ListKeys()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("expected %v but got %v", want, got)
+	}
 }
