@@ -59,13 +59,17 @@ func fetchBitcask(dirPath string, config []ConfigOptions) Bitcask {
 	return bc
 }
 
-func (bc *Bitcask) fetchValueFromFile(key string) string {
-	recForKey := bc.keydir[key]
+func (bc *Bitcask) fetchValueFromFile(key string) (string, error) {
+	recForKey, exist := bc.keydir[key]
+	if !exist {
+		return "", fmt.Errorf("Key %s not found in the directory %s", key, bc.directory)
+
+	}
 	file, _ := os.Open(filepath.Join(bc.directory, strconv.Itoa(recForKey.fileId)))
 	file.Seek(int64(recForKey.valuePos+20+len(key)), 0)
 	value := make([]byte, recForKey.valueSize)
 	file.Read(value)
-	return string(value)
+	return string(value), nil
 }
 
 func (bc *Bitcask) lockDir() {
@@ -132,12 +136,13 @@ func (bc *Bitcask) buildActiveFileRecord(rec fileRecord) []byte {
 }
 
 func (bc *Bitcask) buildMergedFileRecord(key string, rec record) []byte {
+	val, _ := bc.fetchValueFromFile(key)
 	rc := fileRecord{
 		tStamp: rec.tStamp,
 		keySz:  len([]byte(key)),
 		valSz:  rec.valueSize,
 		key:    key,
-		value:  bc.fetchValueFromFile(key),
+		value:  val,
 	}
 	return bc.buildActiveFileRecord(rc)
 }

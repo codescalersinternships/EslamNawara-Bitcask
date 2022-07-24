@@ -80,16 +80,16 @@ func Open(dirPath string, config ...ConfigOptions) (Bitcask, error) {
 func (bc *Bitcask) Get(key string) (string, error) {
 	val, exist := bc.keydir[key]
 	if !exist {
-		return "", fmt.Errorf("Key %s not found in the directory", key)
+		return "", fmt.Errorf("Key %s not found in the directory %s", key, bc.directory)
 	}
 	if val.isPending {
 		value := bc.penWrites[key].value
 		if value == TOMPSTONE {
-			return "", fmt.Errorf("The value of the key %s  was deleted", key)
+			return "", fmt.Errorf("Key %s not found in the directory %s", key, bc.directory)
 		}
 		return value, nil
 	}
-	return bc.fetchValueFromFile(key), nil
+	return bc.fetchValueFromFile(key)
 }
 
 func (bc *Bitcask) Put(key, val string) error {
@@ -116,9 +116,6 @@ func (bc *Bitcask) Put(key, val string) error {
 }
 
 func (bc *Bitcask) Delate(key string) error {
-	if _, exist := bc.keydir[key]; !exist {
-		return fmt.Errorf("Key %s Not found in the directory %s", key, bc.directory)
-	}
 	return bc.Put(key, TOMPSTONE)
 }
 

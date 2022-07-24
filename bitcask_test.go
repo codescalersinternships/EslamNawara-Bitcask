@@ -66,7 +66,6 @@ func TestOpen(t *testing.T) {
 		}
 	})
 }
-
 func TestPut(t *testing.T) {
 	t.Run("Put with permession", func(t *testing.T) {
 		path := filepath.Join("testing", "testPut")
@@ -111,7 +110,7 @@ func TestGet(t *testing.T) {
 		config := ConfigOptions{WritingPermession, true}
 		bc, _ := Open(path, config)
 		key := "Age"
-		want := fmt.Sprintf("Key %s not found in the directory", key)
+		want := fmt.Sprintf("Key %s not found in the directory %s", key, path)
 		_, err := bc.Get(key)
 		got := err.Error()
 		bc.unlockDir() //change to close after finishing
@@ -135,3 +134,30 @@ func TestGet(t *testing.T) {
 	})
 }
 
+func TestDelete(t *testing.T) {
+	t.Run("Delate with permession", func(t *testing.T) {
+		path := filepath.Join("testing", "testDelete")
+		bc, _ := Open(path, ConfigOptions{WritingPermession, true})
+		key := "Name"
+		bc.Put(key, "Eslam")
+		bc.Delate(key)
+		_, err:= bc.Get(key)
+		want := fmt.Sprintf("Key %s not found in the directory %s", key, path)
+		bc.unlockDir() //change to close after finishing
+        got:= err.Error()
+		if got != want {
+			t.Errorf("expected %v but got %v", want, got)
+		}
+	})
+
+	t.Run("key not found", func(t *testing.T) {
+		path := filepath.Join("testing", "testDelete")
+		bc, _ := Open(path)
+		got := bc.Delate("Age").Error()
+		want := fmt.Sprintf("Writing permession denied in directory %s", path)
+		bc.unlockDir() //change to close after finishing
+		if got != want {
+			t.Errorf("expected %v but got %v", want, got)
+		}
+	})
+}
