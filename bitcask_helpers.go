@@ -9,11 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 // Helpers
 func createBitcask(dirPath string, cfg []ConfigOptions) Bitcask {
-	//set the config and create a16,16,n active file and empty keydir and sync to init the pendingWrites map
 	var config ConfigOptions
 	if len(cfg) > 0 {
 		config = cfg[0]
@@ -24,9 +24,10 @@ func createBitcask(dirPath string, cfg []ConfigOptions) Bitcask {
 		}
 	}
 	bc := Bitcask{
-		keydir:     make(keyDir),
-		directory:  dirPath,
-		penWrites:  make(pendingWrites),
+		keydir:       make(keyDir),
+		directory:    dirPath,
+		penWrites:    make(pendingWrites),
+		activeFileId: int(time.Now().Unix()),
 		dirOpts: ConfigOptions{
 			accessPermission: config.accessPermission,
 			syncOption:       config.syncOption,
@@ -46,29 +47,16 @@ func fetchBitcask(dirPath string, config []ConfigOptions) Bitcask {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		lineBytes := scanner.Bytes()
-		key := string(lineBytes[20:])
+		key := string(lineBytes[16:])
 		keydirField := record{
 			fileId:    int(binary.BigEndian.Uint32(lineBytes[:4])),
 			valueSize: int(binary.BigEndian.Uint32(lineBytes[4:8])),
 			valuePos:  int(binary.BigEndian.Uint32(lineBytes[8:12])),
-			tStamp:    int64(binary.BigEndian.Uint32(lineBytes[12:20])),
+			tStamp:    int(binary.BigEndian.Uint32(lineBytes[12:16])),
 		}
 		bc.keydir[key] = keydirField
 	}
 	return bc
-}
-
-func (bc *Bitcask) fetchValueFromFile(key string) (string, error) {
-	recForKey, exist := bc.keydir[key]
-	if !exist {
-		return "", fmt.Errorf("Key %s not found in the directory %s", key, bc.directory)
-
-	}
-	file, _ := os.Open(filepath.Join(bc.directory, strconv.Itoa(recForKey.fileId)))
-	file.Seek(int64(recForKey.valuePos+20+len(key)), 0)
-	value := make([]byte, recForKey.valueSize)
-	file.Read(value)
-	return string(value), nil
 }
 
 func (bc *Bitcask) lockDir() {
@@ -102,11 +90,11 @@ func (bc *Bitcask) checkWritingPermission() error {
 }
 
 func (bc *Bitcask) buildHintFileRecord(key string, rec record) []byte {
-	elem := make([]byte, 20)
+	elem := make([]byte, 16)
 	binary.BigEndian.PutUint32(elem[:], uint32(rec.fileId))
 	binary.BigEndian.PutUint32(elem[4:], uint32(rec.valueSize))
 	binary.BigEndian.PutUint32(elem[8:], uint32(rec.valuePos))
-	binary.BigEndian.PutUint64(elem[12:], uint64(rec.tStamp))
+	binary.BigEndian.PutUint32(elem[12:], uint32(rec.tStamp))
 	elem = append(elem, key+"\n"...)
 	return elem
 }
@@ -122,11 +110,27 @@ func (bc *Bitcask) buildHintFile() {
 	}
 }
 
+func (bc *Bitcask) fetchValueFromFile(key string) (string, error) {
+	recForKey, exist := bc.keydir[key]
+	if !exist {
+		return "", fmt.Errorf("Key %s not found in the directory %s", key, bc.directory)
+	}
+	currentActiveFile := strconv.Itoa(recForKey.fileId)
+	if recForKey.fileId == bc.activeFileId {
+		currentActiveFile = activeFile
+	}
+	file, _:= os.Open(filepath.Join(bc.directory, currentActiveFile))
+	file.Seek(int64(recForKey.valuePos+16+len(key)), 0)
+	value := make([]byte, recForKey.valueSize)
+	file.Read(value)
+	return string(value), nil
+}
+
 func (bc *Bitcask) buildActiveFileRecord(rec fileRecord) []byte {
-	elem := make([]byte, 20)
-	binary.BigEndian.PutUint64(elem[4:], uint64(rec.tStamp))
-	binary.BigEndian.PutUint32(elem[12:], uint32(rec.keySz))
-	binary.BigEndian.PutUint32(elem[16:], uint32(rec.valSz))
+	elem := make([]byte, 16)
+	binary.BigEndian.PutUint32(elem[4:], uint32(rec.tStamp))
+	binary.BigEndian.PutUint32(elem[8:], uint32(rec.keySz))
+	binary.BigEndian.PutUint32(elem[12:], uint32(rec.valSz))
 	elem = append(elem, rec.key...)
 	elem = append(elem, rec.value...)
 	crc := crc32.ChecksumIEEE(elem[4:])
@@ -152,7 +156,7 @@ func (bc *Bitcask) buildMergedFiles() {
 	file, _ := os.OpenFile(mergedFile, os.O_APPEND|os.O_CREATE, 0777)
 	pos := 0
 	for key, val := range bc.keydir {
-		if val.fileId != activeFileId {
+		if val.fileId != bc.activeFileId {
 			elem := bc.buildMergedFileRecord(key, val)
 			bc.keydir[key] = record{
 				fileId:    fId,

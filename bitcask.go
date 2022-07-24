@@ -18,7 +18,6 @@ const (
 	hintFile            = "hintFile"
 	lockFile            = "db.lck"
 	activeFile          = "activeFile"
-	activeFileId        = 0
 	//defines the isTypeLocked value
 	LockedForWriting = true
 	OpenForRW        = false
@@ -27,13 +26,12 @@ const (
 	ReadOnly          = false
 )
 
-var ()
-
 type Bitcask struct {
-	directory  string
-	keydir     keyDir
-	dirOpts    ConfigOptions
-	penWrites  pendingWrites
+	directory    string
+	keydir       keyDir
+	dirOpts      ConfigOptions
+	penWrites    pendingWrites
+	activeFileId int
 }
 
 type keyDir map[string]record
@@ -41,13 +39,13 @@ type record struct {
 	fileId    int
 	valueSize int
 	valuePos  int
-	tStamp    int64
+	tStamp    int
 	isPending bool
 }
 
 type pendingWrites map[string]fileRecord
 type fileRecord struct {
-	tStamp int64
+	tStamp int
 	keySz  int
 	valSz  int
 	key    string
@@ -100,17 +98,19 @@ func (bc *Bitcask) Put(key, val string) error {
 		bc.Sync()
 	}
 	bc.penWrites[key] = fileRecord{
-		tStamp: time.Now().Unix(),
+		tStamp: int(time.Now().Unix()),
 		keySz:  len([]byte(key)),
 		valSz:  len([]byte(val)),
 		key:    key,
 		value:  val,
 	}
-
 	bc.keydir[key] = record{
-		tStamp:    time.Now().Unix(),
+		tStamp:    int(time.Now().Unix()),
 		valueSize: len([]byte(val)),
 		isPending: true,
+	}
+	if bc.dirOpts.syncOption {
+		bc.Sync()
 	}
 	return nil
 }
@@ -128,7 +128,7 @@ func (bc *Bitcask) ListKeys() []string {
 	return keys
 }
 
-func (bc *Bitcask) Fold(foldFunc func(string, string, any) any, acc any) any{
+func (bc *Bitcask) Fold(foldFunc func(string, string, any) any, acc any) any {
 	for key := range bc.keydir {
 		val, _ := bc.Get(key)
 		acc = foldFunc(key, val, acc)
@@ -162,28 +162,28 @@ func (bc *Bitcask) Sync() error {
 	file, _ := os.OpenFile(currentActiveFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0777)
 	fi, _ := os.Stat(currentActiveFile)
 	pos := int(fi.Size())
-	temp, _ := os.ReadDir(bc.directory)
-	numOfFiles := len(temp)
 	for key, val := range bc.penWrites {
 		if val.value == TOMPSTONE {
 			delete(bc.keydir, key)
+		} else {
+			if state, _ := os.Stat(currentActiveFile); state.Size() >= activeMaxSize {
+				file.Close()
+				pos = 0
+				os.Rename(currentActiveFile, filepath.Join(bc.directory, strconv.FormatInt(time.Now().Unix(), 10)))
+				file, _ = os.OpenFile(currentActiveFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0777)
+				bc.activeFileId = int(time.Now().Unix())
+			}
+			bc.keydir[key] = record{
+				fileId:    bc.activeFileId,
+				tStamp:    val.tStamp,
+				valuePos:  pos,
+				valueSize: val.valSz,
+				isPending: false,
+			}
+			rec := bc.buildActiveFileRecord(val)
+			pos += len(rec)
+			file.Write(rec)
 		}
-		if state, _ := os.Stat(currentActiveFile); state.Size() >= activeMaxSize {
-			file.Close()
-			pos = 0
-			os.Rename(currentActiveFile, filepath.Join(bc.directory, strconv.Itoa(numOfFiles)))
-			file, _ = os.OpenFile(currentActiveFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0777)
-		}
-		bc.keydir[key] = record{
-			fileId:    activeFileId,
-			tStamp:    val.tStamp,
-			valuePos:  pos,
-			valueSize: val.valSz,
-			isPending: false,
-		}
-		rec := bc.buildActiveFileRecord(val)
-		pos += len(rec)
-		file.Write(rec)
 	}
 	bc.penWrites = make(pendingWrites)
 	defer file.Close()
@@ -193,6 +193,7 @@ func (bc *Bitcask) Sync() error {
 func (bc *Bitcask) Close() {
 	if err := bc.checkWritingPermission(); err == nil {
 		bc.Sync()
+        //bc.Merge()
 		bc.buildHintFile()
 		bc.unlockDir()
 	}
