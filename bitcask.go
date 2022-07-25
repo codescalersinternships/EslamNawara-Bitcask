@@ -168,8 +168,13 @@ func (bc *Bitcask) Sync() error {
 	currentActiveFile := filepath.Join(bc.directory, activeFile)
 	file, _ := os.OpenFile(currentActiveFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0777)
 	defer file.Close()
-	fi, _ := os.Stat(currentActiveFile)
+	fi, err := os.Stat(currentActiveFile)
 	pos := int(fi.Size())
+	if err != nil {
+		fmt.Println(pos)
+		fmt.Println(err)
+
+	}
 	for key, val := range bc.penWrites {
 		if val.value == TOMPSTONE {
 			delete(bc.keydir, key)
