@@ -1,3 +1,4 @@
+
 package bitcask
 
 import (
@@ -32,21 +33,21 @@ type Bitcask struct {
 	keydir       keyDir
 	dirOpts      ConfigOptions
 	penWrites    pendingWrites
-	activeFileId int
+	activeFileId int64
 }
 
 type keyDir map[string]record
 type record struct {
-	fileId    int
+	fileId    int64
 	valueSize int
 	valuePos  int
-	tStamp    int
+	tStamp    int64
 	isPending bool
 }
 
 type pendingWrites map[string]fileRecord
 type fileRecord struct {
-	tStamp int
+	tStamp int64
 	keySz  int
 	valSz  int
 	key    string
@@ -106,14 +107,14 @@ func (bc *Bitcask) Put(key, val string) error {
 		bc.Sync()
 	}
 	bc.penWrites[key] = fileRecord{
-		tStamp: int(time.Now().UnixNano()),
+		tStamp: time.Now().UnixNano(),
 		keySz:  len([]byte(key)),
 		valSz:  len([]byte(val)),
 		key:    key,
 		value:  val,
 	}
 	bc.keydir[key] = record{
-		tStamp:    int(time.Now().UnixNano()),
+		tStamp:    time.Now().UnixNano(),
 		valueSize: len([]byte(val)),
 		isPending: true,
 	}
@@ -175,12 +176,11 @@ func (bc *Bitcask) Sync() error {
 			delete(bc.keydir, key)
 		} else {
 			if state, _ := os.Stat(currentActiveFile); state.Size() >= activeMaxSize {
-				file.Close()
 				pos = 0
-				os.Rename(currentActiveFile, filepath.Join(bc.directory, strconv.FormatInt(time.Now().UnixNano(), 10)))
+				os.Rename(currentActiveFile, filepath.Join(bc.directory, strconv.FormatInt(bc.activeFileId, 10)))
 				file, _ = os.OpenFile(currentActiveFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0777)
 				defer file.Close()
-				bc.activeFileId = int(time.Now().UnixNano())
+				bc.activeFileId = time.Now().UnixNano()
 			}
 			bc.keydir[key] = record{
 				fileId:    bc.activeFileId,
@@ -201,9 +201,10 @@ func (bc *Bitcask) Sync() error {
 
 func (bc *Bitcask) Close() {
 	if err := bc.checkWritingPermission(); err == nil {
+		bc.Sync()
 		currentActiveFile := filepath.Join(bc.directory, activeFile)
-		os.Rename(currentActiveFile, filepath.Join(bc.directory, strconv.Itoa(bc.activeFileId)))
-		bc.activeFileId = int(time.Now().UnixNano())
+		os.Rename(currentActiveFile, filepath.Join(bc.directory, strconv.FormatInt(bc.activeFileId, 10)))
+		bc.activeFileId = time.Now().UnixNano()
 		bc.Merge()
 		bc.buildHintFile()
 		os.Remove(currentActiveFile)

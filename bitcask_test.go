@@ -228,25 +228,36 @@ func TestGet(t *testing.T) {
 		cleanTestingDir(path)
 	})
 
-	/*	t.Run("test parsing hint file", func(t *testing.T) {
-		path := "testGetiiii"
+	t.Run("Open multiple readers", func(t *testing.T) {
+		path := "testGet"
+		createTestingDir(path)
+		bc, _ := Open(path)
+		_, err := Open(path)
+		got := err
+		bc.Close()
+		bc.Close()
+		if got != nil {
+			t.Errorf("expected %v but got %v", nil, got)
+		}
+		cleanTestingDir(path)
+	})
+
+	t.Run("test parsing hint file", func(t *testing.T) {
+		path := "testGet"
 		createTestingDir(path)
 		bc, _ := Open(path, ConfigOptions{WritingPermession, false})
 		bc.Put("Name", "Eslam")
 		bc.Put("uni", "MU")
-		bc.Sync()
-		bc.Merge()
 		bc.Close()
 		bc2, _ := Open(path)
 		got, _ := bc2.Get("Name")
 		want := "Eslam"
-		fmt.Println(bc2.Get("uni"))
-		bc.Close()
+		bc2.Close()
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 		}
-		//	cleanTestingDir(path)
-	})*/
+		cleanTestingDir(path)
+	})
 }
 
 func TestFold(t *testing.T) {
@@ -317,6 +328,7 @@ func TestSync(t *testing.T) {
 		}
 		cleanTestingDir(path)
 	})
+
 }
 
 func createTestingDir(dir string) {

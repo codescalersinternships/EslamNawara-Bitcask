@@ -2,7 +2,6 @@ package bitcask
 
 import (
 	"bufio"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -27,7 +26,7 @@ func createBitcask(dirPath string, cfg []ConfigOptions) Bitcask {
 		keydir:       make(keyDir),
 		directory:    dirPath,
 		penWrites:    make(pendingWrites),
-		activeFileId: int(time.Now().UnixNano()),
+		activeFileId: time.Now().UnixNano(),
 		dirOpts: ConfigOptions{
 			accessPermission: config.accessPermission,
 			syncOption:       config.syncOption,
@@ -47,15 +46,16 @@ func fetchBitcask(dirPath string, config []ConfigOptions) Bitcask {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		lineBytes := scanner.Bytes()
-		if len(lineBytes) > 20 {
-			key := string(lineBytes[20:])
-			keydirField := record{
-				fileId:    int(binary.BigEndian.Uint32(lineBytes[16:20])),
-				valueSize: int(binary.BigEndian.Uint32(lineBytes[4:8])),
-				valuePos:  int(binary.BigEndian.Uint32(lineBytes[8:12])),
-				tStamp:    int(binary.BigEndian.Uint32(lineBytes[12:16])),
-			}
-			bc.keydir[key] = keydirField
+		ts, _ := strconv.ParseInt(string(lineBytes[0:20]), 10, 64)
+		fId, _ := strconv.ParseInt(string(lineBytes[20:40]), 10, 64)
+		vSz, _ := strconv.Atoi(string(lineBytes[40:50]))
+		vPos, _ := strconv.Atoi(string(lineBytes[50:60]))
+		key := string(lineBytes[60:])
+		bc.keydir[key] = record{
+			fileId:    fId,
+			valueSize: vSz,
+			valuePos:  vPos,
+			tStamp:    ts,
 		}
 	}
 	return bc
@@ -92,14 +92,11 @@ func (bc *Bitcask) checkWritingPermission() error {
 }
 
 func (bc *Bitcask) buildHintFileRecord(key string, rec record) []byte {
-	elem := make([]byte, 20, 20+len(key+"\n"))
-	binary.BigEndian.PutUint32(elem[:], uint32(len(key)))
-	binary.BigEndian.PutUint32(elem[4:], uint32(rec.valueSize))
-	binary.BigEndian.PutUint32(elem[8:], uint32(rec.valuePos))
-	binary.BigEndian.PutUint32(elem[12:], uint32(rec.tStamp))
-	binary.BigEndian.PutUint32(elem[16:], uint32(rec.fileId))
-	elem = append(elem, key+"\n"...)
-	return elem
+	vSz := padWithZero(rec.valueSize)
+	vPos := padWithZero(rec.valuePos)
+	ts := padInt64WithZero(rec.tStamp)
+	fid := padInt64WithZero(rec.fileId)
+	return []byte(ts + fid + vSz + vPos + key + "\n")
 }
 
 func (bc *Bitcask) buildHintFile() {
@@ -117,28 +114,25 @@ func (bc *Bitcask) buildHintFile() {
 
 func (bc *Bitcask) fetchValueFromFile(key string) (string, error) {
 	recForKey, _ := bc.keydir[key]
-
-	currentActiveFile := strconv.Itoa(recForKey.fileId)
+	fileName := strconv.FormatInt(recForKey.fileId, 10)
 	if recForKey.fileId == bc.activeFileId {
-		currentActiveFile = activeFile
+		fileName = activeFile
 	}
-	file, _ := os.Open(filepath.Join(bc.directory, currentActiveFile))
-	file.Seek(int64(recForKey.valuePos+16+len(key)), 0)
+	file, _ := os.Open(filepath.Join(bc.directory, fileName))
+	file.Seek(int64(recForKey.valuePos+50+len(key)), 0)
 	value := make([]byte, recForKey.valueSize)
 	file.Read(value)
 	return string(value), nil
 }
 
 func (bc *Bitcask) buildActiveFileRecord(rec fileRecord) []byte {
-	elem := make([]byte, 16, 16+rec.keySz+rec.valSz)
-	binary.BigEndian.PutUint32(elem[4:], uint32(rec.tStamp))
-	binary.BigEndian.PutUint32(elem[8:], uint32(rec.keySz))
-	binary.BigEndian.PutUint32(elem[12:], uint32(rec.valSz))
-	elem = append(elem, rec.key...)
-	elem = append(elem, rec.value...)
-	crc := crc32.ChecksumIEEE(elem[4:])
-	binary.BigEndian.PutUint32(elem[:4], crc)
-	return elem
+	kSz := padWithZero(rec.keySz)
+	ts := padInt64WithZero(rec.tStamp)
+	vSz := padWithZero(rec.valSz)
+	elem := []byte(ts + kSz + vSz + rec.key + rec.value)
+	crc := crc32.ChecksumIEEE(elem)
+	crcS := padWithZero(int(crc))
+	return []byte(crcS + ts + kSz + vSz + rec.key + rec.value)
 }
 
 func (bc *Bitcask) buildMergedFileRecord(key string, rec record) []byte {
@@ -154,8 +148,8 @@ func (bc *Bitcask) buildMergedFileRecord(key string, rec record) []byte {
 }
 
 func (bc *Bitcask) buildMergedFiles() {
-	fId := int(time.Now().UnixNano())
-	mergedFile := filepath.Join(bc.directory, "m"+strconv.Itoa(fId))
+	fId := time.Now().UnixNano()
+	mergedFile := filepath.Join(bc.directory, strconv.FormatInt(fId, 10))
 	file, _ := os.OpenFile(mergedFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0777)
 	defer file.Close()
 	pos := 0
@@ -175,7 +169,7 @@ func (bc *Bitcask) buildMergedFiles() {
 	}
 }
 
-func  addReader(dir string) {
+func addReader(dir string) {
 	path := filepath.Join(dir, readerLock)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -202,4 +196,11 @@ func readerExist(dir string) bool {
 		return false
 	}
 	return true
+}
+
+func padWithZero(val int) string {
+	return fmt.Sprintf("%010d", val)
+}
+func padInt64WithZero(val int64) string {
+	return fmt.Sprintf("%020d", val)
 }
