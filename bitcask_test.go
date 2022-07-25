@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -62,6 +63,7 @@ func TestPut(t *testing.T) {
 		bc, _ := Open(path)
 		got := bc.Put("Name", "Eslam").Error()
 		want := fmt.Sprintf("Writing permession denied in directory %s", path)
+		bc.Close()
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 
@@ -140,7 +142,7 @@ func TestGet(t *testing.T) {
 
 	t.Run("Get synced value", func(t *testing.T) {
 		path := filepath.Join("testing", "testGet", "syncedDir")
-		config := ConfigOptions{WritingPermession, false}
+		config := ConfigOptions{WritingPermession, true}
 		bc, _ := Open(path, config)
 		bc.Put("Name", "Eslam")
 		bc.Sync()
@@ -151,10 +153,24 @@ func TestGet(t *testing.T) {
 			t.Errorf("expected %v but got %v", want, got)
 		}
 	})
-
+	t.Run("Get synced invalid value", func(t *testing.T) {
+		path := filepath.Join("testing", "testGet", "syncedDirInvalid")
+		config := ConfigOptions{WritingPermession, true}
+		bc, _ := Open(path, config)
+		bc.Put("Name", "Eslam")
+		bc.Sync()
+		key := "Age"
+		_, err := bc.Get(key)
+		want := fmt.Sprintf("Key %s not found in the directory %s", key, path)
+		got := err.Error()
+		bc.Close()
+		if got != want {
+			t.Errorf("expected %v but got %v", want, got)
+		}
+	})
 	t.Run("Get Merged value", func(t *testing.T) {
 		path := filepath.Join("testing", "testGet", "mergedDir")
-		config := ConfigOptions{WritingPermession, true}
+		config := ConfigOptions{WritingPermession, false}
 		bc, _ := Open(path, config)
 		bc.Put("Name", "Eslam")
 		bc.Put("Age", "22")
@@ -164,6 +180,68 @@ func TestGet(t *testing.T) {
 		want := "MU"
 		got, _ := bc.Get("Uni")
 		bc.Close()
+		if got != want {
+			t.Errorf("expected %v but got %v", want, got)
+		}
+	})
+}
+
+func TestFold(t *testing.T) {
+	path := filepath.Join("testing", "testFold")
+	bc, _ := Open(path, ConfigOptions{WritingPermession, false})
+	for i := 0; i < 10; i++ {
+		bc.Put(fmt.Sprint(i+1), fmt.Sprint(i+1))
+	}
+	foldFunc := func(s1, s2 string, a any) any {
+		acc, _ := a.(int)
+		k, _ := strconv.Atoi(s1)
+		v, _ := strconv.Atoi(s2)
+		return acc + k + v
+	}
+	want := 110
+	got := bc.Fold(foldFunc, 0)
+	bc.Close()
+	if got != want {
+		t.Errorf("got:%d, want:%d", got, want)
+	}
+}
+
+func TestMerge(t *testing.T) {
+	t.Run("Merge 200000 values", func(t *testing.T) {
+		path := filepath.Join("testing", "testMerge", "largeFile")
+		config := ConfigOptions{WritingPermession, false}
+		bc, _ := Open(path, config)
+		for i := 0; i < 200000; i++ {
+			bc.Put("Id"+strconv.Itoa(i), "20202020")
+		}
+		want := 200000
+		got := len(bc.keydir)
+		bc.Close()
+		if got != want {
+			t.Errorf("expected %v but got %v", want, got)
+		}
+	})
+	t.Run("Merge with no Writing permession", func(t *testing.T) {
+		path := filepath.Join("testing", "testMerge", "noPerm")
+		bc, _ := Open(path)
+		err := bc.Merge()
+		want := fmt.Sprintf("Writing permession denied in directory %s", bc.directory)
+		got := err.Error()
+		if got != want {
+			t.Errorf("expected %v but got %v", want, got)
+		}
+	})
+}
+
+func TestSync(t *testing.T) {
+	t.Run("Merge with Writing permession", func(t *testing.T) {
+		path := filepath.Join("testing", "testSync")
+		bc, _ := Open(path, ConfigOptions{WritingPermession, false})
+		bc.Close()
+		bc, _ = Open(path)
+		err := bc.Sync()
+		want := fmt.Sprintf("Writing permession denied in directory %s", path)
+		got := err.Error()
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
 		}

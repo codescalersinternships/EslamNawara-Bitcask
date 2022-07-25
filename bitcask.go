@@ -12,12 +12,13 @@ import (
 
 const (
 	pendingMaxSize      = 50
-	activeMaxSize       = 10000 // 10 kb per active File
+	activeMaxSize       = 1000 // 1 kb per active File
 	numOfEssentialFiles = 3
 	TOMPSTONE           = "TOMPSTONE"
 	hintFile            = "hintFile"
-	lockFile            = "lck"
+	lockFile            = ".lck"
 	activeFile          = "activeFile"
+	readerLock          = ".readerLock"
 	//defines the isTypeLocked value
 	LockedForWriting = true
 	OpenForRW        = false
@@ -59,6 +60,13 @@ type ConfigOptions struct {
 
 func Open(dirPath string, config ...ConfigOptions) (Bitcask, error) {
 	bc := Bitcask{}
+	if len(config) > 0 && config[0].accessPermission == WritingPermession {
+		if readerExist(dirPath) {
+			return bc, fmt.Errorf("The directory %s cant open a bitcask for writing", dirPath)
+		}
+	} else {
+		addReader(dirPath)
+	}
 	if _, err := os.Stat(dirPath); errors.Is(err, os.ErrNotExist) {
 		if len(config) > 0 && config[0].accessPermission == WritingPermession {
 			os.Mkdir(dirPath, 0777)
@@ -194,11 +202,13 @@ func (bc *Bitcask) Sync() error {
 func (bc *Bitcask) Close() {
 	if err := bc.checkWritingPermission(); err == nil {
 		currentActiveFile := filepath.Join(bc.directory, activeFile)
-        os.Rename(currentActiveFile, filepath.Join(bc.directory, strconv.Itoa(bc.activeFileId)))
+		os.Rename(currentActiveFile, filepath.Join(bc.directory, strconv.Itoa(bc.activeFileId)))
 		bc.activeFileId = int(time.Now().UnixNano())
 		bc.Merge()
-        os.Remove(currentActiveFile)
 		bc.buildHintFile()
+		os.Remove(currentActiveFile)
 		bc.unlockDir()
+	} else {
+		removeReader(bc.directory)
 	}
 }
