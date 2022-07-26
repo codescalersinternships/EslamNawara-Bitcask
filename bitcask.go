@@ -1,4 +1,3 @@
-
 package bitcask
 
 import (
@@ -23,7 +22,7 @@ const (
 	//defines the isTypeLocked value
 	LockedForWriting = true
 	OpenForRW        = false
-	//defines the accessPermission option
+	//defines the AccessPermission option
 	WritingPermession = true
 	ReadOnly          = false
 )
@@ -55,13 +54,13 @@ type fileRecord struct {
 }
 
 type ConfigOptions struct {
-	accessPermission bool
-	syncOption       bool
+	AccessPermission bool
+	SyncOption       bool
 }
 
 func Open(dirPath string, config ...ConfigOptions) (Bitcask, error) {
 	bc := Bitcask{}
-	if len(config) > 0 && config[0].accessPermission == WritingPermession {
+	if len(config) > 0 && config[0].AccessPermission == WritingPermession {
 		if readerExist(dirPath) {
 			return bc, fmt.Errorf("The directory %s cant open a bitcask for writing", dirPath)
 		}
@@ -69,16 +68,16 @@ func Open(dirPath string, config ...ConfigOptions) (Bitcask, error) {
 		addReader(dirPath)
 	}
 	if _, err := os.Stat(dirPath); errors.Is(err, os.ErrNotExist) {
-		if len(config) > 0 && config[0].accessPermission == WritingPermession {
+		if len(config) > 0 && config[0].AccessPermission == WritingPermession {
 			os.Mkdir(dirPath, 0777)
 			bc = createBitcask(dirPath, config)
 			return bc, fmt.Errorf("New Directory was created in the path %s", dirPath)
 		} else {
-			return bc, fmt.Errorf("No such a file or directory %s\nCan't create directory in the path%s", dirPath, dirPath)
+			return bc, fmt.Errorf("Reader can't create directory in the path %s", dirPath)
 		}
 	}
 	if dirLocked(dirPath) {
-		return bc, fmt.Errorf("The directory %s is type locked you can't read or write from it", dirPath)
+		return bc, fmt.Errorf("The directory %s is locked you can't read or write from it", dirPath)
 	}
 	bc = fetchBitcask(dirPath, config)
 	return bc, nil
@@ -118,7 +117,7 @@ func (bc *Bitcask) Put(key, val string) error {
 		valueSize: len([]byte(val)),
 		isPending: true,
 	}
-	if bc.dirOpts.syncOption {
+	if bc.dirOpts.SyncOption {
 		bc.Sync()
 	}
 	return nil

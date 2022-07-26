@@ -14,7 +14,7 @@ func TestOpen(t *testing.T) {
 		path := "testOpen"
 		createTestingDir(path)
 		path = filepath.Join(path, "NonEsisting")
-		bc, err := Open(path, ConfigOptions{accessPermission: WritingPermession, syncOption: false})
+		bc, err := Open(path, ConfigOptions{AccessPermission: WritingPermession, SyncOption: false})
 		want := fmt.Sprintf("New Directory was created in the path %s", path)
 		got := err.Error()
 		bc.Close()
@@ -30,7 +30,7 @@ func TestOpen(t *testing.T) {
 		createTestingDir(path)
 		path = filepath.Join(path, "NonEsisting")
 		_, err := Open(path)
-		want := fmt.Sprintf("No such a file or directory %s\nCan't create directory in the path%s", path, path)
+		want := fmt.Sprintf("Reader can't create directory in the path %s", path)
 		got := err.Error()
 		if got != want {
 			t.Errorf("expected %v but got %v", want, got)
@@ -43,7 +43,7 @@ func TestOpen(t *testing.T) {
 		createTestingDir(path)
 		bc, _ := Open(path, ConfigOptions{WritingPermession, false})
 		_, err := Open(path)
-		want := fmt.Sprintf("The directory %s is type locked you can't read or write from it", path)
+		want := fmt.Sprintf("The directory %s is locked you can't read or write from it", path)
 		got := err.Error()
 		bc.Close()
 		if got != want {
@@ -291,6 +291,7 @@ func TestMerge(t *testing.T) {
 		for i := 0; i < 200000; i++ {
 			bc.Put("Id"+strconv.Itoa(i), "20202020")
 		}
+        bc.Merge()
 		want := 200000
 		got := len(bc.keydir)
 		bc.Close()

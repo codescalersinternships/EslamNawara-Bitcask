@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,8 +19,8 @@ func createBitcask(dirPath string, cfg []ConfigOptions) Bitcask {
 		config = cfg[0]
 	} else {
 		config = ConfigOptions{
-			accessPermission: ReadOnly,
-			syncOption:       false,
+			AccessPermission: ReadOnly,
+			SyncOption:       false,
 		}
 	}
 	bc := Bitcask{
@@ -28,11 +29,11 @@ func createBitcask(dirPath string, cfg []ConfigOptions) Bitcask {
 		penWrites:    make(pendingWrites),
 		activeFileId: time.Now().UnixNano(),
 		dirOpts: ConfigOptions{
-			accessPermission: config.accessPermission,
-			syncOption:       config.syncOption,
+			AccessPermission: config.AccessPermission,
+			SyncOption:       config.SyncOption,
 		},
 	}
-	if config.accessPermission == WritingPermession {
+	if config.AccessPermission == WritingPermession {
 		bc.lockDir()
 	}
 	return bc
@@ -41,16 +42,15 @@ func createBitcask(dirPath string, cfg []ConfigOptions) Bitcask {
 func fetchBitcask(dirPath string, config []ConfigOptions) Bitcask {
 	bc := createBitcask(dirPath, config)
 	//  read the hint file line by line to get every key and record and add them to the bitcask and return it
-	file, _ := os.OpenFile(filepath.Join(bc.directory, hintFile), os.O_CREATE|os.O_RDONLY, 0777)
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
+	file, _ := os.ReadFile(filepath.Join(bc.directory, hintFile))
+	scanner := bufio.NewScanner(strings.NewReader(string(file)))
 	for scanner.Scan() {
 		lineBytes := scanner.Bytes()
 		ts, _ := strconv.ParseInt(string(lineBytes[0:20]), 10, 64)
-		fId, _ := strconv.ParseInt(string(lineBytes[20:40]), 10, 64)
-		vSz, _ := strconv.Atoi(string(lineBytes[40:50]))
-		vPos, _ := strconv.Atoi(string(lineBytes[50:60]))
-		key := string(lineBytes[60:])
+		fId, _ := strconv.ParseInt(string(lineBytes[21:41]), 10, 64)
+		vSz, _ := strconv.Atoi(string(lineBytes[42:52]))
+		vPos, _ := strconv.Atoi(string(lineBytes[53:63]))
+		key := string(lineBytes[64:])
 		bc.keydir[key] = record{
 			fileId:    fId,
 			valueSize: vSz,
@@ -85,7 +85,7 @@ func (bc *Bitcask) unlockDir() {
 }
 
 func (bc *Bitcask) checkWritingPermission() error {
-	if bc.dirOpts.accessPermission == ReadOnly {
+	if bc.dirOpts.AccessPermission == ReadOnly {
 		return fmt.Errorf("Writing permession denied in directory %s", bc.directory)
 	}
 	return nil
@@ -96,7 +96,7 @@ func (bc *Bitcask) buildHintFileRecord(key string, rec record) []byte {
 	vPos := padWithZero(rec.valuePos)
 	ts := padInt64WithZero(rec.tStamp)
 	fid := padInt64WithZero(rec.fileId)
-	return []byte(ts + fid + vSz + vPos + key + "\n")
+	return []byte(ts + " " + fid + " " + vSz + " " + vPos + " " + key + "\n")
 }
 
 func (bc *Bitcask) buildHintFile() {
@@ -152,11 +152,12 @@ func (bc *Bitcask) buildMergedFiles() {
 	mergedFile := filepath.Join(bc.directory, strconv.FormatInt(fId, 10))
 	file, _ := os.OpenFile(mergedFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0777)
 	defer file.Close()
+	newKeyDir := make(keyDir)
 	pos := 0
 	for key, val := range bc.keydir {
 		if val.fileId != bc.activeFileId {
 			elem := bc.buildMergedFileRecord(key, val)
-			bc.keydir[key] = record{
+			newKeyDir[key] = record{
 				fileId:    fId,
 				tStamp:    val.tStamp,
 				valueSize: val.valueSize,
@@ -165,8 +166,11 @@ func (bc *Bitcask) buildMergedFiles() {
 			}
 			file.Write(elem)
 			pos += len(elem)
+		} else {
+			newKeyDir[key] = bc.keydir[key]
 		}
 	}
+	bc.keydir = newKeyDir
 }
 
 func addReader(dir string) {
