@@ -2,8 +2,6 @@ name: test-bitcask
 
 on:
   push:
-    branches: [ development ]
-  pull_request:
     branches: [ main ]
 
 jobs:
